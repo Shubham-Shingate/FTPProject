@@ -61,15 +61,22 @@ public class FTP implements Runnable {
                     
                     switch(commandArr[0]) {
                         case AppConstants.FTP_GET:
-                            if(commandArr.length == 2){
-                                File myFile = new File(fileStorage+"/"+commandArr[1]);
-                                if(myFile.exists()){
+                            if(commandArr.length == 2) { //This If block is for normal GET cmds
+                            	File myFile = new File(fileStorage+"/"+commandArr[1]);
+                                while (!FileStatus.lockFile(fileStorage+"/"+commandArr[1])) {
+                                	try {
+										Thread.currentThread().sleep(20);
+									} catch (InterruptedException e) {
+										e.printStackTrace();
+									}
+								}
+                            	if(myFile.exists()){
                                     socketOutPw.println("Ready");
                                     socketOutPw.println(myFile.getName());
                                     // bytes array for holding the file information
                                     byte [] byteArray  = new byte [(int)myFile.length()];
                                     // send the size of the file
-                                    socketOutPw.println(byteArray.length);
+                                    socketOutPw.println(String.valueOf(byteArray.length));
                                     FileInputStream fis = new FileInputStream(myFile);
                                     BufferedInputStream bis = new BufferedInputStream(fis);
                                     bis.read(byteArray,0,byteArray.length);
@@ -81,15 +88,70 @@ public class FTP implements Runnable {
                                 else {
                                     socketOutPw.println("This file does not exist!");
                                 }
-                            } else {
+                                FileStatus.releaseFile(fileStorage+"/"+commandArr[1]);
+                            } 
+                            else if (commandArr.length == 3 && commandArr[2].equals("&")) { //This Else-If block is for special GET cmds
+								
+                            	String commandId = FTPServer.generateCommandId();
+                            	socketOutPw.println(commandId);
+                            	File myFile = new File(fileStorage+"/"+commandArr[1]);
+                            	while (!FileStatus.lockFile(fileStorage+"/"+commandArr[1])) {
+                                	try {
+										Thread.currentThread().sleep(20);
+									} catch (InterruptedException e) {
+										e.printStackTrace();
+									}
+								}
+                            	if (myFile.exists()) {
+                            		socketOutPw.println("Ready");
+                                    socketOutPw.println(myFile.getName());
+                                    // bytes array for holding the file information
+                                    byte [] byteArray  = new byte [(int)myFile.length()];
+                                    // send the size of the file
+                                    socketOutPw.println(String.valueOf(byteArray.length));
+                                    FileInputStream fis = new FileInputStream(myFile);
+                                    BufferedInputStream bis = new BufferedInputStream(fis);
+                                    //int size = 0;
+                                    int off = 0;
+                                    boolean readComplete = true;
+                                    while(off <= (byteArray.length-1)) {
+                                    	bis.read(byteArray, off, 1);
+                                    	off++;
+                                    	if(FTPServer.commandIdStatusMap.get(commandId).equals("T")) {
+                                    		socketOutPw.println("Terminated");
+											readComplete = false;
+                                    		break;
+                                    	}
+                                    }
+                                    
+                                    if (readComplete == true) {
+										socketOutPw.println(new String(byteArray));
+									}
+                                    bis.close();
+                                    fis.close();
+                                    socketOutPw.println("Ready\n");
+								}
+                            	else {
+                            		socketOutPw.println("This file does not exist!");
+								}
+                            	FileStatus.releaseFile(fileStorage+"/"+commandArr[1]);
+							} 
+                            else {
                             	 socketOutPw.println("Invalid Command..\n");
                             }
                             break;
                             
                         case AppConstants.FTP_PUT:
-                            if(commandArr.length == 2){
+                            if(commandArr.length == 2) { //This If block is for normal PUT cmds
                                 line = socketInSc.nextLine();
-                                int current = socketInSc.nextInt();
+                                while (!FileStatus.lockFile(fileStorage+"/"+line)) {
+                                	try {
+										Thread.currentThread().sleep(20);
+									} catch (InterruptedException e) {
+										e.printStackTrace();
+									}
+								}
+                                int current = Integer.parseInt(socketInSc.nextLine());
                                 byte [] byteArray  = new byte [current];
                                 FileOutputStream fos = new FileOutputStream(fileStorage+"/"+line);
                                 while(current >=1 ){
@@ -104,11 +166,49 @@ public class FTP implements Runnable {
                                 fos.flush();
                                 fos.close();
                                 socketOutPw.println("Ready\n");
-                               
-                            } else {
+                                FileStatus.releaseFile(fileStorage+"/"+line);
+                            }
+                            else if (commandArr.length == 3 && commandArr[2].equals("&")) { //This Else-If block is for special PUT cmds
+                            	String commandId = FTPServer.generateCommandId();
+                            	socketOutPw.println(commandId);
+                            	//Receive the name of the file
+                            	line = socketInSc.nextLine();
+                            	while (!FileStatus.lockFile(fileStorage+"/"+line)) {
+                                	try {
+										Thread.currentThread().sleep(20);
+									} catch (InterruptedException e) {
+										e.printStackTrace();
+									}
+								}
+                            	//Receive the size of the file
+                            	int current = Integer.parseInt(socketInSc.nextLine());
+                                byte [] byteArray  = new byte [current];
+                                FileOutputStream fos = new FileOutputStream(fileStorage+"/"+line);
+                                int off = 0;
+                                boolean writeComplete = true;
+                                byteArray = socketInSc.nextLine().getBytes();
+								while (off <= (byteArray.length - 1)) {							
+									fos.write(byteArray, off, 1);
+									off++;
+									if (FTPServer.commandIdStatusMap.get(commandId).equals("T")) {
+										writeComplete = false;
+										break;
+									}
+								}
+								fos.flush();
+                                fos.close();
+								if (writeComplete == true) {
+									socketOutPw.println("Ready\n");
+								} else {
+									socketOutPw.println("Terminated\n");
+									delete(fileStorage+"/"+line);
+								}
+                                FileStatus.releaseFile(fileStorage+"/"+line);
+							}
+                            else {
                                 socketOutPw.println("Invalid Command..\n");
                             }
-                            socketInSc.nextLine();
+                            //socketInSc.nextLine(); //****NOT SURE WHETHER THIS LINE IS NEEDED (Debug and check)
                             break;
                             
                         case AppConstants.FTP_LS:
@@ -234,7 +334,9 @@ public class FTP implements Runnable {
     private String help () {
         return "commands \n"
                 + "get <filename> - " + "retrieves a file with specified name\n"
+                + "get <filename> & - " + "retrieves a file with specified name, & enables termination facility\n"
                 + "put <filename> - " + "put a file in designated directory,  with an absolute path\n"
+                + "put <filename> & - " + "put a file in designated directory,  with an absolute path & enables termination facility\n"
                 + "ls - " + "shows files list located in directory\n"
                 + "help - " + "shows menu of commands\n"
                 + "delete <filename> - " + "deletes the file from directory with a specified name\n"
@@ -242,6 +344,7 @@ public class FTP implements Runnable {
                 + "mkdir <directoryname> - " + "creates a new directory within current working directory\n"
                 + "pwd - " + "prints the name of the current working directory of remote machine\n"
                 + "cd <directoryname> - " + "change the current working directory of remote machine\n"
+                + "terminate <command-ID> - " + "terminate a running GET or PUT command which was suffixed with & symbol\n"
                 + "quit - " + "closes the server socket\n"
                 + "";
     }

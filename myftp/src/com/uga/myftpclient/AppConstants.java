@@ -20,6 +20,7 @@ public class AppConstants {
 	/*-- The FTP Commands --*/
 	public static final String FTP_GET = "get";
 	public static final String FTP_PUT = "put";
+	public static final String FTP_TERMINATE = "terminate";
 	 
 	
 	

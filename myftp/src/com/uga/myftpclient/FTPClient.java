@@ -15,8 +15,9 @@ import java.io.PrintWriter;
 public class FTPClient {
     public static void main(String[] args) throws IOException {
 
-		if (args.length != 2) {
-			System.err.println("Pass the server IP Port as the command line argument only");
+		
+		if (args.length != 3) {
+			System.err.println("Pass the server IP, nPort, tPort all three as the command line argument only");
 			return;
 		}
 
@@ -24,8 +25,14 @@ public class FTPClient {
         PrintWriter socketOutPw = null;
         Scanner socketInSc = null;
         Scanner sc = null;
+        
+        Socket terminateSocket = null;
+        PrintWriter terminateSocketOutPw = null;
+        Scanner terminateSocketInSc = null;
+        
         try {
         	socket = new Socket(args[0], Integer.parseInt(args[1]));
+        	//socket = new Socket("192.168.1.9", Integer.parseInt("8080"));
             socketOutPw = new PrintWriter(socket.getOutputStream(), true);
         	socketInSc = new Scanner(socket.getInputStream());
         	sc = new Scanner(System.in);
@@ -43,64 +50,114 @@ public class FTPClient {
                 // handling commands- client related tasks only.
                 switch (commandArr[0]) {
                     case AppConstants.FTP_GET:
-                        socketOutPw.println(line);
-                        if ((commandArr.length == 2) && socketInSc.nextLine().equals(AppConstants.READY)) {
-                            line = socketInSc.nextLine();
-                            int current = socketInSc.nextInt();
-                            byte[] byteArray = new byte[current];
-                            FileOutputStream fos = new FileOutputStream(fileStorage + "/" + line);
-                            //while to be executed until we get all the info in file
-                            while (current >= 1) {
-                                //read current amount of bytes
-                            	byteArray = socketInSc.nextLine().getBytes();
-                            	int bytesRead = byteArray.length;
-                                // write that many received bytes
-                                fos.write(byteArray, 0, bytesRead);
-                                current -= bytesRead;
-                                byteArray = new byte[0];
-                            }
-                            fos.flush();
-                            fos.close();
-                            //socketInSc.nextLine();
-                        }
-                        line = AppUtil.getPrintWriterResponse(line, socketInSc);
-                        break;
+                    	
+                    	if (commandArr.length == 3 && commandArr[2].equals("&")) {
+                    		//This is a special command should be handled in a separate thread by passing the socket into it.
+                    		SpecialCmdThread specialCmd = new SpecialCmdThread(socket, socketOutPw, socketInSc, new String(line), new String(fileStorage));
+                    		Thread specialCmdThread = new Thread(specialCmd);
+                    		specialCmdThread.start();
+                    		break;
+                    	}
+                    	
+					synchronized (socket) {
+						socketOutPw.println(line);
+						if ((commandArr.length == 2) && socketInSc.nextLine().equals(AppConstants.READY)) {
+							line = socketInSc.nextLine();
+							int current = Integer.parseInt(socketInSc.nextLine());
+							byte[] byteArray = new byte[current];
+							FileOutputStream fos = new FileOutputStream(fileStorage + "/" + line);
+							//while to be executed until we get all the info in file
+							while (current >= 1) {
+								//read current amount of bytes
+								byteArray = socketInSc.nextLine().getBytes();
+								int bytesRead = byteArray.length;
+								// write that many received bytes
+								fos.write(byteArray, 0, bytesRead);
+								current -= bytesRead;
+								byteArray = new byte[0];
+							}
+							fos.flush();
+							fos.close();
+							//socketInSc.nextLine();
+						}
+						line = AppUtil.getPrintWriterResponse(line, socketInSc);
+					}
+					break;
                         
                     case AppConstants.FTP_PUT:
-                        if (commandArr.length == 2) {
-                            try {
-                                //get the file that is to be send to the server
-                                File myFile = new File(commandArr[1]);
-                                if (myFile.exists()) {
-                                    //Send the command to server via socket's output stream
-                                    socketOutPw.println(line);
-                                    // get the name of the file and send it to server
-                                    socketOutPw.println(myFile.getName());
-                                    byte[] byteArray = new byte[(int) myFile.length()];
-                                    // send the size of the file
-                                    socketOutPw.println(byteArray.length);
-                                    FileInputStream fis = new FileInputStream(myFile);
-                                    BufferedInputStream bis = new BufferedInputStream(fis);
-                                    bis.read(byteArray, 0, byteArray.length);
-                                    System.out.println("Sending " + commandArr[1] + "(" + byteArray.length + " bytes)");
-                                    // send byte array over Stream
-                                    socketOutPw.println(new String(byteArray));
-                                    bis.close();
-                                    fis.close();
-                                    //wait for response
-                                    line = AppUtil.getPrintWriterResponse(line, socketInSc);
-                                } else {
+                    	
+                    	if (commandArr.length == 3 && commandArr[2].equals("&")) {
+                    		//This is a special command should be handled in a separate thread by passing the socket into it.
+                    		SpecialCmdThread specialCmd = new SpecialCmdThread(socket, socketOutPw, socketInSc, new String(line), new String(fileStorage));
+                    		Thread specialCmdThread = new Thread(specialCmd);
+                    		specialCmdThread.start();
+                    		break;
+                    	}
+                    	
+					synchronized (socket) {
+						if (commandArr.length == 2) {
+							try {
+								//get the file that is to be send to the server
+								File myFile = new File(commandArr[1]);
+								if (myFile.exists()) {
+									//Send the command to server via socket's output stream
+									socketOutPw.println(line);
+									// get the name of the file and send it to server
+									socketOutPw.println(myFile.getName());
+									byte[] byteArray = new byte[(int) myFile.length()];
+									// send the size of the file
+									socketOutPw.println(String.valueOf(byteArray.length));
+									FileInputStream fis = new FileInputStream(myFile);
+									BufferedInputStream bis = new BufferedInputStream(fis);
+									bis.read(byteArray, 0, byteArray.length);
+									System.out.println("Sending " + commandArr[1] + "(" + byteArray.length + " bytes)");
+									// send byte array over Stream
+									socketOutPw.println(new String(byteArray));
+									bis.close();
+									fis.close();
+									//wait for response
+									line = AppUtil.getPrintWriterResponse(line, socketInSc);
+								} else {
 									throw new FileNotFoundException();
 								}
-                            } catch (IOException e) {
-                            	System.out.println("An error has occurred."+ e);
-                            }
-                        }
-                        break;
-                        
+							} catch (IOException e) {
+								System.out.println("An error has occurred." + e);
+							}
+						}
+					}
+					break;
+                    
+					case AppConstants.FTP_TERMINATE:
+						/* Create a new socket connection from the main thread of client to the tPort of
+						 * server where TerminateThread is waiting.
+						 */
+						if (commandArr.length == 2 && commandArr[0].startsWith(AppConstants.FTP_TERMINATE)) {
+							
+							try {
+								terminateSocket = new Socket(args[0], Integer.parseInt(args[2]));
+								//terminateSocket = new Socket("192.168.1.9", Integer.parseInt("8081"));
+								terminateSocketOutPw = new PrintWriter(terminateSocket.getOutputStream(), true);
+								terminateSocketInSc = new Scanner(terminateSocket.getInputStream());
+								terminateSocketOutPw.println(line);
+								line = AppUtil.getPrintWriterResponse(line, terminateSocketInSc);
+							
+							} catch (Exception e) {
+								e.printStackTrace();
+							} finally {
+								terminateSocketOutPw.close();
+								terminateSocketInSc.close();
+								terminateSocket.close();
+							}
+							
+						}
+						
+					break;
+					
                     default:
-                        socketOutPw.println(line);
-                        line = AppUtil.getPrintWriterResponse(line, socketInSc);
+					synchronized (socket) {
+						socketOutPw.println(line);
+						line = AppUtil.getPrintWriterResponse(line, socketInSc);
+					}
                 }
             }
             
