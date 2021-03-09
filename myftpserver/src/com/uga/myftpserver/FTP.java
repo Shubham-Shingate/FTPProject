@@ -225,13 +225,21 @@ public class FTP implements Runnable {
                             break;
                             
                         case AppConstants.FTP_DELETE:
-                            if(commandArr.length == 2){
+                            if(commandArr.length == 2) {
+                            	while (!FileStatus.lockFile(fileStorage+"/"+commandArr[1])) {
+                                	try {
+										Thread.currentThread().sleep(20);
+									} catch (InterruptedException e) {
+										e.printStackTrace();
+									}
+								}
                                 if(delete(fileStorage+"/"+commandArr[1])){
                                     socketOutPw.println("done\n");
                                 }
                                 else{
                                     socketOutPw.println("Could not find the file\n");
                                 }
+                                FileStatus.releaseFile(fileStorage+"/"+commandArr[1]);
                             } else {
                                 socketOutPw.println("Invalid Command..\n");
                             }
@@ -239,12 +247,20 @@ public class FTP implements Runnable {
                             
                         case AppConstants.FTP_RENAME:
                             if(commandArr.length == 3){
-                                if(rename(fileStorage+"/"+commandArr[1],fileStorage+"/"+commandArr[2])){
+                            	while (!FileStatus.lockFile(fileStorage+"/"+commandArr[1])) {
+                                	try {
+										Thread.currentThread().sleep(20);
+									} catch (InterruptedException e) {
+										e.printStackTrace();
+									}
+								}
+                            	if(rename(fileStorage+"/"+commandArr[1],fileStorage+"/"+commandArr[2])){
                                     socketOutPw.println("done\n");
                                 }
                                 else{
                                     socketOutPw.println("could not find\n");
                                 }
+                            	FileStatus.releaseFile(fileStorage+"/"+commandArr[1]);
                             } else {
                                 socketOutPw.println("Invalid Command..\n");
                             }
